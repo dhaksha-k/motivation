@@ -11,7 +11,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase compat SDKs (matching your current setup) -->
+  <!-- Firebase compat SDKs -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-app-compat.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-auth-compat.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-firestore-compat.min.js"></script>
@@ -35,7 +35,6 @@
       appId: "1:298033717951:web:df2ac43fe0477bf3ae1c0a"
     };
 
-    // ---- Reward table (unchanged) ----
     const REWARDS = {
       common: {
         rarity: 'Common',
@@ -118,6 +117,13 @@
       const [auth, setAuth] = useState(null);
       const [db, setDb] = useState(null);
 
+      // calendar state
+      const [calMonth, setCalMonth] = useState(() => {
+        const d = new Date();
+        return new Date(d.getFullYear(), d.getMonth(), 1);
+      });
+      const [selectedDayISO, setSelectedDayISO] = useState(null);
+
       // Keep unsubscribe refs so we can detach listeners on sign-out
       const invUnsubRef = useRef(null);
       const userDocUnsubRef = useRef(null);
@@ -129,23 +135,18 @@
           return;
         }
         try {
-          // Initialize once
-          if (firebase.apps.length === 0) {
-            firebase.initializeApp(FIREBASE_CONFIG);
-          }
+          if (firebase.apps.length === 0) firebase.initializeApp(FIREBASE_CONFIG);
           const firebaseAuth = firebase.auth();
           const firebaseDb = firebase.firestore();
           setAuth(firebaseAuth);
           setDb(firebaseDb);
 
           firebaseAuth.onAuthStateChanged(async (u) => {
-            // Clean up prior listeners when user changes
             if (invUnsubRef.current) { invUnsubRef.current(); invUnsubRef.current = null; }
             if (userDocUnsubRef.current) { userDocUnsubRef.current(); userDocUnsubRef.current = null; }
 
             setUser(u);
             if (u) {
-              // Realtime user doc (stats + lastLogDate)
               userDocUnsubRef.current = firebaseDb
                 .collection('users').doc(u.uid)
                 .onSnapshot((snap) => {
@@ -154,7 +155,6 @@
                   setLastLogDate(data.lastLogDate || '');
                 });
 
-              // Realtime inventory (each reward = a doc)
               invUnsubRef.current = firebaseDb
                 .collection('users').doc(u.uid)
                 .collection('inventory')
@@ -175,8 +175,6 @@
           alert('Firebase Error: ' + error.message);
           setLoading(false);
         }
-
-        // On unmount, detach any listeners
         return () => {
           if (invUnsubRef.current) invUnsubRef.current();
           if (userDocUnsubRef.current) userDocUnsubRef.current();
@@ -187,6 +185,40 @@
       const toast = (msg) => alert(msg);
       const getTodayString = () => new Date().toISOString().slice(0, 10); // ISO (YYYY-MM-DD)
       const hasLoggedToday = () => lastLogDate === getTodayString();
+      const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`);
+      const ymd = (y, m0, d) => `${y}-${pad2(m0 + 1)}-${pad2(d)}`;
+      const daysInMonth = (y, m0) => new Date(y, m0 + 1, 0).getDate();
+
+      function buildMonthMatrix(date) {
+        const y = date.getFullYear();
+        const m0 = date.getMonth();
+        const firstDow = new Date(y, m0, 1).getDay();
+        const dim = daysInMonth(y, m0);
+
+        const prevMonth0 = (m0 + 11) % 12;
+        const prevYear = m0 === 0 ? y - 1 : y;
+        const prevDim = daysInMonth(prevYear, prevMonth0);
+
+        const cells = [];
+        for (let i = 0; i < 42; i++) {
+          const cell = { inMonth: true, year: y, month0: m0, day: 1, iso: '' };
+
+          if (i < firstDow) {
+            const d = prevDim - (firstDow - 1 - i);
+            cell.inMonth = false; cell.year = prevYear; cell.month0 = prevMonth0; cell.day = d;
+          } else if (i >= firstDow + dim) {
+            const nextMonth0 = (m0 + 1) % 12;
+            const nextYear = m0 === 11 ? y + 1 : y;
+            const d = i - (firstDow + dim) + 1;
+            cell.inMonth = false; cell.year = nextYear; cell.month0 = nextMonth0; cell.day = d;
+          } else {
+            cell.day = i - firstDow + 1;
+          }
+          cell.iso = ymd(cell.year, cell.month0, cell.day);
+          cells.push(cell);
+        }
+        return Array.from({ length: 6 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+      }
 
       const saveUserDocMerge = async (obj) => {
         if (!user || !db) return;
@@ -229,15 +261,9 @@
 
       const openLootBox = async () => {
         if (!user) return toast('Please sign in first.');
-        if (!gymLog.didGym || !gymLog.workout.trim()) {
-          return toast('Please fill out the gym log!');
-        }
-        if (!gymLog.photoURL) {
-          return toast('Please upload a gym selfie to prove it!');
-        }
-        if (hasLoggedToday()) {
-          return toast('Already logged today! Come back tomorrow.');
-        }
+        if (!gymLog.didGym || !gymLog.workout.trim()) return toast('Please fill out the gym log!');
+        if (!gymLog.photoURL) return toast('Please upload a gym selfie to prove it!');
+        if (hasLoggedToday()) return toast('Already logged today! Come back tomorrow.');
 
         setIsOpening(true);
         setTimeout(async () => {
@@ -245,6 +271,7 @@
             const rarityKey = getRarity();
             const rewardData = REWARDS[rarityKey];
             const randomItem = rewardData.items[Math.floor(Math.random() * rewardData.items.length)];
+            const todayISO = getTodayString();
 
             const reward = {
               emoji: randomItem.emoji,
@@ -256,25 +283,21 @@
               textColor: rewardData.textColor,
               badgeColor: rewardData.badgeColor,
               date: new Date().toLocaleDateString(),
+              dayISO: todayISO,                 // <-- for calendar grouping
               workout: gymLog.workout,
               photoURL: gymLog.photoURL,
               redeemed: false,
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             };
 
-            // Write inventory item as its own doc
-            await db.collection('users').doc(user.uid)
-              .collection('inventory')
-              .add(reward);
+            await db.collection('users').doc(user.uid).collection('inventory').add(reward);
 
-            // Update stats + lastLogDate on user doc
             await saveUserDocMerge({
               stats: { total: (stats.total || 0) + 1, thisWeek: (stats.thisWeek || 0) + 1 },
-              lastLogDate: getTodayString(),
+              lastLogDate: todayISO,
             });
 
-            // UI feedback
-            setCurrentReward({ ...reward }); // modal display (id will come from snapshot)
+            setCurrentReward({ ...reward });
             setShowReward(true);
             setGymLog({ didGym: '', workout: '', photo: null, photoURL: '' });
           } catch (e) {
@@ -292,9 +315,7 @@
           await db.collection('users').doc(user.uid)
             .collection('inventory').doc(id)
             .update({ redeemed: true, redeemedAt: firebase.firestore.FieldValue.serverTimestamp() });
-        } catch (e) {
-          console.error(e); toast('Could not redeem. Check rules.');
-        }
+        } catch (e) { console.error(e); toast('Could not redeem.'); }
       };
 
       const deleteReward = async (id) => {
@@ -303,10 +324,20 @@
           await db.collection('users').doc(user.uid)
             .collection('inventory').doc(id)
             .delete();
-        } catch (e) {
-          console.error(e); toast('Could not delete.');
-        }
+        } catch (e) { console.error(e); toast('Could not delete.'); }
       };
+
+      // group logs by dayISO (for calendar + day modal)
+      const byDay = React.useMemo(() => {
+        const map = {};
+        for (const r of inventory) {
+          const key = r.dayISO || '';
+          if (!key) continue;
+          if (!map[key]) map[key] = [];
+          map[key].push(r);
+        }
+        return map;
+      }, [inventory]);
 
       if (loading) {
         return (
@@ -478,6 +509,67 @@
               )}
             </div>
 
+            {/* -------- CALENDAR / ACTIVITY LOG -------- */}
+            <div className="bg-white rounded-3xl p-6 mb-8 shadow-xl">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-extrabold text-gray-900">Activity Calendar</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold"
+                    onClick={() => setCalMonth(new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1))}
+                  >◀</button>
+                  <div className="text-gray-800 font-bold">
+                    {calMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' })}
+                  </div>
+                  <button
+                    className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold"
+                    onClick={() => setCalMonth(new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1))}
+                  >▶</button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 text-xs font-bold text-gray-500 mb-1">
+                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+                  <div key={d} className="text-center py-2">{d}</div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1">
+                {buildMonthMatrix(calMonth).flat().map((cell, idx) => {
+                  const hasLogs = byDay[cell.iso] && byDay[cell.iso].length > 0;
+                  const isToday = cell.iso === getTodayString();
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedDayISO(cell.iso)}
+                      className={[
+                        "h-20 rounded-xl border text-left p-2 transition",
+                        cell.inMonth ? "bg-white border-gray-200" : "bg-gray-50 border-gray-200 opacity-70",
+                        "hover:border-teal-400 hover:shadow-sm"
+                      ].join(" ")}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm font-bold ${cell.inMonth ? "text-gray-800" : "text-gray-400"}`}>{cell.day}</span>
+                        {isToday && <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 font-bold">Today</span>}
+                      </div>
+                      {hasLogs && (
+                        <div className="mt-3">
+                          <div className="text-xs font-semibold text-teal-700">
+                            {byDay[cell.iso].length} log{byDay[cell.iso].length > 1 ? 's' : ''}
+                          </div>
+                          <div className="flex mt-1 gap-1">
+                            {byDay[cell.iso].slice(0,3).map((r,i) => (
+                              <span key={i} title={r.title} className="w-2 h-2 rounded-full bg-teal-400 inline-block"></span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {showReward && currentReward && (
               <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
@@ -487,12 +579,8 @@
                       {currentReward.rarity}
                     </div>
                     <div className="text-7xl mb-4">{currentReward.emoji}</div>
-                    <h3 className="text-3xl font-extrabold text-gray-900 mb-3">
-                      {currentReward.title}
-                    </h3>
-                    <p className="text-gray-600 text-sm mb-6 font-medium italic">
-                      {currentReward.description}
-                    </p>
+                    <h3 className="text-3xl font-extrabold text-gray-900 mb-3">{currentReward.title}</h3>
+                    <p className="text-gray-600 text-sm mb-6 font-medium italic">{currentReward.description}</p>
                     <button onClick={() => setShowReward(false)} className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white font-bold py-3 px-8 rounded-xl hover:shadow-lg transition-all text-lg">
                       Awesome!
                     </button>
@@ -501,9 +589,52 @@
               </div>
             )}
 
+            {/* DAY DETAIL MODAL */}
+            {selectedDayISO && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-extrabold text-gray-900">
+                      {new Date(selectedDayISO).toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
+                    </h3>
+                    <button
+                      onClick={() => setSelectedDayISO(null)}
+                      className="text-gray-500 hover:text-gray-900 font-bold text-lg"
+                    >×</button>
+                  </div>
+
+                  {(!byDay[selectedDayISO] || byDay[selectedDayISO].length === 0) ? (
+                    <div className="text-gray-500">No logs for this day.</div>
+                  ) : (
+                    <div className="space-y-3 max-h-[60vh] overflow-auto pr-1">
+                      {byDay[selectedDayISO].map((r) => (
+                        <div key={r.id || r.createdAt?.seconds || Math.random()} className="border border-gray-200 rounded-xl p-3 flex gap-3 items-start">
+                          {r.photoURL && <img src={r.photoURL} alt="" className="w-20 h-20 object-cover rounded-lg" />}
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">{r.emoji}</span>
+                              <span className="font-bold text-gray-800">{r.title}</span>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">{r.rarity}</span>
+                            </div>
+                            <div className="text-sm text-gray-600 italic">{r.description}</div>
+                            <div className="text-xs text-gray-500 mt-1">Workout: <span className="font-medium text-gray-700">{r.workout || '—'}</span></div>
+                            {r.redeemed && <div className="text-xs text-emerald-700 mt-1">Redeemed ✓</div>}
+                          </div>
+                          {!r.redeemed && (
+                            <button onClick={() => redeemReward(r.id)} className="bg-gray-900 text-white font-bold px-4 py-2 rounded-lg hover:bg-gray-800">
+                              Redeem
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-3xl p-8 mb-8 shadow-xl">
               <h2 className="text-2xl font-extrabold text-gray-900 mb-6">Available Rewards ({activeRewards.length})</h2>
-
               {activeRewards.length === 0 ? (
                 <p className="text-gray-500 text-center py-8 font-medium">No rewards yet. Hit the gym!</p>
               ) : (
@@ -511,15 +642,11 @@
                   {activeRewards.map((reward) => (
                     <div key={reward.id} className={`${reward.color} rounded-2xl p-6 border-2 ${reward.borderColor}`}>
                       <div className="flex items-start justify-between gap-4">
-                        {reward.photoURL && (
-                          <img src={reward.photoURL} alt="Gym proof" className="w-20 h-20 object-cover rounded-lg flex-shrink-0" />
-                        )}
+                        {reward.photoURL && <img src={reward.photoURL} alt="Gym proof" className="w-20 h-20 object-cover rounded-lg flex-shrink-0" />}
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <span className="text-3xl">{reward.emoji}</span>
-                            <span className={`text-xl font-bold ${reward.textColor}`}>
-                              {reward.title}
-                            </span>
+                            <span className={`text-xl font-bold ${reward.textColor}`}>{reward.title}</span>
                           </div>
                           <p className="text-gray-600 text-sm mb-2 italic">{reward.description}</p>
                           <div className="text-gray-500 text-xs font-medium">{reward.date} • {reward.workout}</div>
@@ -543,9 +670,7 @@
                       <div className="flex items-center gap-3 flex-1">
                         <span className="text-2xl opacity-50">{reward.emoji}</span>
                         <div>
-                          <div className="text-gray-400 line-through font-medium">
-                            {reward.title}
-                          </div>
+                          <div className="text-gray-400 line-through font-medium">{reward.title}</div>
                           <div className="text-gray-400 text-xs">{reward.date}</div>
                         </div>
                       </div>
