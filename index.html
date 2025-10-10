@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>the MOtivation club</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,23 +11,20 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Firebase compat SDKs (matching your current setup) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-app-compat.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-auth-compat.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-firestore-compat.min.js"></script>
   <style>
-    * {
-      font-family: 'Montserrat', sans-serif;
-    }
-    body {
-      background: #12123E;
-    }
+    * { font-family: 'Montserrat', sans-serif; }
+    body { background:#12123E; }
   </style>
 </head>
 <body>
   <div id="root"></div>
-  
+
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
 
     const FIREBASE_CONFIG = {
       apiKey: "AIzaSyDq1fJ_4QCXw-3XtTnCmR0hRbUuSSWx2Nc",
@@ -38,6 +35,7 @@
       appId: "1:298033717951:web:df2ac43fe0477bf3ae1c0a"
     };
 
+    // ---- Reward table (unchanged) ----
     const REWARDS = {
       common: {
         rarity: 'Common',
@@ -120,52 +118,79 @@
       const [auth, setAuth] = useState(null);
       const [db, setDb] = useState(null);
 
-      useEffect(() => {
-        if (window.firebase) {
-          try {
-            const app = firebase.initializeApp(FIREBASE_CONFIG);
-            const firebaseAuth = firebase.auth();
-            const firebaseDb = firebase.firestore();
-            setAuth(firebaseAuth);
-            setDb(firebaseDb);
+      // Keep unsubscribe refs so we can detach listeners on sign-out
+      const invUnsubRef = useRef(null);
+      const userDocUnsubRef = useRef(null);
 
-            firebaseAuth.onAuthStateChanged(async (user) => {
-              console.log('Auth state changed:', user ? user.email : 'No user');
-              setUser(user);
-              if (user) {
-                try {
-                  const userDoc = await firebaseDb.collection('users').doc(user.uid).get();
-                  if (userDoc.exists) {
-                    const data = userDoc.data();
-                    setInventory(data.inventory || []);
-                    setStats(data.stats || { total: 0, thisWeek: 0 });
-                    setLastLogDate(data.lastLogDate || '');
-                  }
-                } catch (err) {
-                  console.error('Error loading user data:', err);
-                }
-              }
-              setLoading(false);
-            });
-          } catch (error) {
-            console.error('Firebase initialization error:', error);
-            alert('Firebase Error: ' + error.message);
-            setLoading(false);
-          }
-        } else {
-          console.error('Firebase not loaded');
+      useEffect(() => {
+        if (!window.firebase) {
           alert('Firebase scripts failed to load');
           setLoading(false);
+          return;
         }
+        try {
+          // Initialize once
+          if (firebase.apps.length === 0) {
+            firebase.initializeApp(FIREBASE_CONFIG);
+          }
+          const firebaseAuth = firebase.auth();
+          const firebaseDb = firebase.firestore();
+          setAuth(firebaseAuth);
+          setDb(firebaseDb);
+
+          firebaseAuth.onAuthStateChanged(async (u) => {
+            // Clean up prior listeners when user changes
+            if (invUnsubRef.current) { invUnsubRef.current(); invUnsubRef.current = null; }
+            if (userDocUnsubRef.current) { userDocUnsubRef.current(); userDocUnsubRef.current = null; }
+
+            setUser(u);
+            if (u) {
+              // Realtime user doc (stats + lastLogDate)
+              userDocUnsubRef.current = firebaseDb
+                .collection('users').doc(u.uid)
+                .onSnapshot((snap) => {
+                  const data = snap.data() || {};
+                  setStats(data.stats || { total: 0, thisWeek: 0 });
+                  setLastLogDate(data.lastLogDate || '');
+                });
+
+              // Realtime inventory (each reward = a doc)
+              invUnsubRef.current = firebaseDb
+                .collection('users').doc(u.uid)
+                .collection('inventory')
+                .orderBy('createdAt', 'desc')
+                .onSnapshot((qs) => {
+                  const items = qs.docs.map(d => ({ id: d.id, ...d.data() }));
+                  setInventory(items);
+                });
+            } else {
+              setInventory([]);
+              setStats({ total: 0, thisWeek: 0 });
+              setLastLogDate('');
+            }
+            setLoading(false);
+          });
+        } catch (error) {
+          console.error('Firebase initialization error:', error);
+          alert('Firebase Error: ' + error.message);
+          setLoading(false);
+        }
+
+        // On unmount, detach any listeners
+        return () => {
+          if (invUnsubRef.current) invUnsubRef.current();
+          if (userDocUnsubRef.current) userDocUnsubRef.current();
+        };
       }, []);
 
-      const saveUserData = async (updates) => {
+      // --- Helpers ---
+      const toast = (msg) => alert(msg);
+      const getTodayString = () => new Date().toISOString().slice(0, 10); // ISO (YYYY-MM-DD)
+      const hasLoggedToday = () => lastLogDate === getTodayString();
+
+      const saveUserDocMerge = async (obj) => {
         if (!user || !db) return;
-        try {
-          await db.collection('users').doc(user.uid).set(updates, { merge: true });
-        } catch (error) {
-          console.error('Error saving:', error);
-        }
+        await db.collection('users').doc(user.uid).set(obj, { merge: true });
       };
 
       const handleAuth = async () => {
@@ -180,17 +205,17 @@
           } else {
             await auth.signInWithEmailAndPassword(email, password);
           }
-          setEmail('');
-          setPassword('');
+          setEmail(''); setPassword('');
         } catch (error) {
-          setAuthError(error.code === 'auth/email-already-in-use' ? 'Email already in use' : 
-                       error.code === 'auth/weak-password' ? 'Password too weak' :
-                       error.code === 'auth/user-not-found' ? 'Invalid credentials' : 'Auth failed');
+          console.error(error);
+          setAuthError(
+            error.code === 'auth/email-already-in-use' ? 'Email already in use' :
+            error.code === 'auth/weak-password' ? 'Password too weak' :
+            error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' ? 'Invalid credentials' :
+            'Auth failed'
+          );
         }
       };
-
-      const getTodayString = () => new Date().toLocaleDateString();
-      const hasLoggedToday = () => lastLogDate === getTodayString();
 
       const getRarity = () => {
         const roll = Math.random();
@@ -203,73 +228,89 @@
       };
 
       const openLootBox = async () => {
+        if (!user) return toast('Please sign in first.');
         if (!gymLog.didGym || !gymLog.workout.trim()) {
-          alert('Please fill out the gym log!');
-          return;
+          return toast('Please fill out the gym log!');
         }
         if (!gymLog.photoURL) {
-          alert('Please upload a gym selfie to prove it!');
-          return;
+          return toast('Please upload a gym selfie to prove it!');
         }
         if (hasLoggedToday()) {
-          alert('Already logged today! Come back tomorrow');
-          return;
+          return toast('Already logged today! Come back tomorrow.');
         }
 
         setIsOpening(true);
         setTimeout(async () => {
-          const rarity = getRarity();
-          const rewardData = REWARDS[rarity];
-          const randomItem = rewardData.items[Math.floor(Math.random() * rewardData.items.length)];
-          
-          const reward = {
-            id: Date.now(),
-            emoji: randomItem.emoji,
-            title: randomItem.title,
-            description: randomItem.description,
-            rarity: rewardData.rarity,
-            color: rewardData.color,
-            borderColor: rewardData.borderColor,
-            textColor: rewardData.textColor,
-            badgeColor: rewardData.badgeColor,
-            date: new Date().toLocaleDateString(),
-            workout: gymLog.workout,
-            photoURL: gymLog.photoURL,
-            redeemed: false
-          };
+          try {
+            const rarityKey = getRarity();
+            const rewardData = REWARDS[rarityKey];
+            const randomItem = rewardData.items[Math.floor(Math.random() * rewardData.items.length)];
 
-          setCurrentReward(reward);
-          setShowReward(true);
-          setIsOpening(false);
+            const reward = {
+              emoji: randomItem.emoji,
+              title: randomItem.title,
+              description: randomItem.description,
+              rarity: rewardData.rarity,
+              color: rewardData.color,
+              borderColor: rewardData.borderColor,
+              textColor: rewardData.textColor,
+              badgeColor: rewardData.badgeColor,
+              date: new Date().toLocaleDateString(),
+              workout: gymLog.workout,
+              photoURL: gymLog.photoURL,
+              redeemed: false,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            };
 
-          const newInventory = [...inventory, reward];
-          const newStats = { total: stats.total + 1, thisWeek: stats.thisWeek + 1 };
-          const newLastLogDate = getTodayString();
+            // Write inventory item as its own doc
+            await db.collection('users').doc(user.uid)
+              .collection('inventory')
+              .add(reward);
 
-          setInventory(newInventory);
-          setStats(newStats);
-          setLastLogDate(newLastLogDate);
+            // Update stats + lastLogDate on user doc
+            await saveUserDocMerge({
+              stats: { total: (stats.total || 0) + 1, thisWeek: (stats.thisWeek || 0) + 1 },
+              lastLogDate: getTodayString(),
+            });
 
-          await saveUserData({ inventory: newInventory, stats: newStats, lastLogDate: newLastLogDate });
-          setGymLog({ didGym: '', workout: '', photo: null, photoURL: '' });
-        }, 2000);
+            // UI feedback
+            setCurrentReward({ ...reward }); // modal display (id will come from snapshot)
+            setShowReward(true);
+            setGymLog({ didGym: '', workout: '', photo: null, photoURL: '' });
+          } catch (e) {
+            console.error(e);
+            toast('Could not save reward. Check Firestore rules & authorized domains.');
+          } finally {
+            setIsOpening(false);
+          }
+        }, 1200);
       };
 
       const redeemReward = async (id) => {
-        const newInventory = inventory.map(item => item.id === id ? { ...item, redeemed: true } : item);
-        setInventory(newInventory);
-        await saveUserData({ inventory: newInventory });
+        if (!user || !db) return;
+        try {
+          await db.collection('users').doc(user.uid)
+            .collection('inventory').doc(id)
+            .update({ redeemed: true, redeemedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        } catch (e) {
+          console.error(e); toast('Could not redeem. Check rules.');
+        }
       };
 
       const deleteReward = async (id) => {
-        const newInventory = inventory.filter(item => item.id !== id);
-        setInventory(newInventory);
-        await saveUserData({ inventory: newInventory });
+        if (!user || !db) return;
+        try {
+          await db.collection('users').doc(user.uid)
+            .collection('inventory').doc(id)
+            .delete();
+        } catch (e) {
+          console.error(e); toast('Could not delete.');
+        }
       };
 
       if (loading) {
         return (
-          <div style={{background: '#12123E'}} className="min-h-screen flex items-center justify-center">
+          <div style={{background:'#12123E'}} className="min-h-screen flex items-center justify-center">
             <div className="text-center">
               <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-teal-400 mx-auto mb-4"></div>
               <p className="text-white text-xl font-semibold">Loading...</p>
@@ -280,7 +321,7 @@
 
       if (!user) {
         return (
-          <div style={{background: '#12123E'}} className="min-h-screen flex items-center justify-center p-4">
+          <div style={{background:'#12123E'}} className="min-h-screen flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
               <div className="text-center mb-8">
                 <img src="logo.png" alt="MOtivation club" className="h-32 w-auto mx-auto mb-6" />
@@ -292,7 +333,7 @@
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleAuth()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
                   placeholder="Email"
                   className="w-full py-3 px-4 rounded-xl bg-gray-50 text-gray-900 placeholder-gray-400 border-2 border-gray-200 focus:outline-none focus:border-teal-400 font-medium"
                 />
@@ -300,7 +341,7 @@
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleAuth()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
                   placeholder="Password"
                   className="w-full py-3 px-4 rounded-xl bg-gray-50 text-gray-900 placeholder-gray-400 border-2 border-gray-200 focus:outline-none focus:border-teal-400 font-medium"
                 />
@@ -328,7 +369,7 @@
       const redeemedRewards = inventory.filter(r => r.redeemed);
 
       return (
-        <div style={{background: '#12123E'}} className="min-h-screen p-4">
+        <div style={{background:'#12123E'}} className="min-h-screen p-4">
           <div className="max-w-4xl mx-auto">
             <div className="text-center mb-8 pt-8">
               <div className="mb-6">
@@ -353,7 +394,7 @@
 
             <div className="bg-white rounded-3xl p-8 mb-8 shadow-xl">
               <h2 className="text-2xl font-extrabold text-gray-900 mb-6">Log Your Workout</h2>
-              
+
               {hasLoggedToday() ? (
                 <div className="bg-teal-50 border-2 border-teal-400 rounded-2xl p-8 text-center">
                   <div className="text-6xl mb-4">✅</div>
@@ -463,7 +504,7 @@
 
             <div className="bg-white rounded-3xl p-8 mb-8 shadow-xl">
               <h2 className="text-2xl font-extrabold text-gray-900 mb-6">Available Rewards ({activeRewards.length})</h2>
-              
+
               {activeRewards.length === 0 ? (
                 <p className="text-gray-500 text-center py-8 font-medium">No rewards yet. Hit the gym!</p>
               ) : (
