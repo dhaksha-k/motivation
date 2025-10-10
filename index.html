@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>the MOtivation club</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-app-compat.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-auth-compat.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-firestore-compat.min.js"></script>
+  <style>
+    * {
+      font-family: 'Montserrat', sans-serif;
+    }
+    body {
+      background: #12123E;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyDq1fJ_4QCXw-3XtTnCmR0hRbUuSSWx2Nc",
+      authDomain: "the-motivation-club.firebaseapp.com",
+      projectId: "the-motivation-club",
+      storageBucket: "the-motivation-club.firebasestorage.app",
+      messagingSenderId: "298033717951",
+      appId: "1:298033717951:web:df2ac43fe0477bf3ae1c0a"
+    };
+
+    const REWARDS = {
+      common: {
+        rarity: 'Common',
+        chance: 0.40,
+        color: 'bg-gray-100',
+        borderColor: 'border-gray-300',
+        textColor: 'text-gray-900',
+        badgeColor: 'bg-gray-200 text-gray-700',
+        items: [
+          { emoji: '☕', title: 'Coffee', description: 'Under $10' },
+          { emoji: '🥤', title: 'Wawa Drink', description: 'Pre-work only' },
+          { emoji: '🥤', title: 'Fast Food Drink', description: 'Not McDonald\'s' },
+          { emoji: '🧋', title: 'Boba', description: 'Any time!' },
+          { emoji: '🍬', title: 'Candy for Bobo', description: 'Under $5' },
+          { emoji: '🍿', title: 'Pick a Snack', description: 'Under $10' },
+          { emoji: '💋', title: '10 Kisses', description: 'Redeemable anytime' },
+          { emoji: '🤗', title: '10 Hugs', description: 'Redeemable anytime' },
+          { emoji: '⚡', title: 'Energy Drink of Choice', description: 'Any brand!' },
+          { emoji: '🍦', title: 'Ice Cream for Bobo', description: 'Treat yourself!' }
+        ]
+      },
+      uncommon: {
+        rarity: 'Uncommon',
+        chance: 0.30,
+        color: 'bg-emerald-50',
+        borderColor: 'border-emerald-300',
+        textColor: 'text-emerald-900',
+        badgeColor: 'bg-emerald-100 text-emerald-700',
+        items: [
+          { emoji: '🍰', title: 'Dessert on Me', description: 'Must be claimed before meal' },
+          { emoji: '👕', title: 'A Shirt of Your Choosing', description: 'Within reason' },
+          { emoji: '🎮', title: 'Unbothered Gaming Day', description: 'No interruptions!' },
+          { emoji: '🚗', title: 'Drive-Thru Surprise', description: 'Order anything' },
+          { emoji: '🍱', title: 'Takeout of His Choice', description: 'Mid-tier restaurant, ~$30' }
+        ]
+      },
+      rare: {
+        rarity: 'Rare',
+        chance: 0.25,
+        color: 'bg-cyan-50',
+        borderColor: 'border-cyan-400',
+        textColor: 'text-cyan-900',
+        badgeColor: 'bg-cyan-100 text-cyan-700',
+        items: [
+          { emoji: '🧁', title: 'Instagram/TikTok Baked Good', description: 'Within reason, I\'ll make it!' },
+          { emoji: '🍽️', title: 'Meal is on Me', description: 'Bill under $50' },
+          { emoji: '🎉', title: 'Activity Night - Your Choice', description: 'No complaints allowed' },
+          { emoji: '🎯', title: 'CS:GO Session', description: 'We\'re gonna play bestie' }
+        ]
+      },
+      legendary: {
+        rarity: 'Legendary',
+        chance: 0.05,
+        color: 'bg-gradient-to-br from-cyan-100 to-teal-100',
+        borderColor: 'border-teal-400',
+        textColor: 'text-teal-900',
+        badgeColor: 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white',
+        items: [
+          { emoji: '🛍️', title: 'Shopping Spree', description: 'Up to $100' },
+          { emoji: '🌟', title: 'Wild Card', description: 'Ask for anything!' },
+          { emoji: '🎮', title: 'I Will Actually Play Persona', description: 'The ultimate sacrifice' }
+        ]
+      }
+    };
+
+    function GymLootBox() {
+      const [user, setUser] = useState(null);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [isSignUp, setIsSignUp] = useState(false);
+      const [authError, setAuthError] = useState('');
+      const [gymLog, setGymLog] = useState({ didGym: '', workout: '', photo: null, photoURL: '' });
+      const [inventory, setInventory] = useState([]);
+      const [showReward, setShowReward] = useState(false);
+      const [currentReward, setCurrentReward] = useState(null);
+      const [isOpening, setIsOpening] = useState(false);
+      const [stats, setStats] = useState({ total: 0, thisWeek: 0 });
+      const [lastLogDate, setLastLogDate] = useState('');
+      const [loading, setLoading] = useState(true);
+      const [auth, setAuth] = useState(null);
+      const [db, setDb] = useState(null);
+
+      useEffect(() => {
+        if (window.firebase) {
+          try {
+            const app = firebase.initializeApp(FIREBASE_CONFIG);
+            const firebaseAuth = firebase.auth();
+            const firebaseDb = firebase.firestore();
+            setAuth(firebaseAuth);
+            setDb(firebaseDb);
+
+            firebaseAuth.onAuthStateChanged(async (user) => {
+              console.log('Auth state changed:', user ? user.email : 'No user');
+              setUser(user);
+              if (user) {
+                try {
+                  const userDoc = await firebaseDb.collection('users').doc(user.uid).get();
+                  if (userDoc.exists) {
+                    const data = userDoc.data();
+                    setInventory(data.inventory || []);
+                    setStats(data.stats || { total: 0, thisWeek: 0 });
+                    setLastLogDate(data.lastLogDate || '');
+                  }
+                } catch (err) {
+                  console.error('Error loading user data:', err);
+                }
+              }
+              setLoading(false);
+            });
+          } catch (error) {
+            console.error('Firebase initialization error:', error);
+            alert('Firebase Error: ' + error.message);
+            setLoading(false);
+          }
+        } else {
+          console.error('Firebase not loaded');
+          alert('Firebase scripts failed to load');
+          setLoading(false);
+        }
+      }, []);
+
+      const saveUserData = async (updates) => {
+        if (!user || !db) return;
+        try {
+          await db.collection('users').doc(user.uid).set(updates, { merge: true });
+        } catch (error) {
+          console.error('Error saving:', error);
+        }
+      };
+
+      const handleAuth = async () => {
+        setAuthError('');
+        if (!email || !password) {
+          setAuthError('Please enter email and password');
+          return;
+        }
+        try {
+          if (isSignUp) {
+            await auth.createUserWithEmailAndPassword(email, password);
+          } else {
+            await auth.signInWithEmailAndPassword(email, password);
+          }
+          setEmail('');
+          setPassword('');
+        } catch (error) {
+          setAuthError(error.code === 'auth/email-already-in-use' ? 'Email already in use' : 
+                       error.code === 'auth/weak-password' ? 'Password too weak' :
+                       error.code === 'auth/user-not-found' ? 'Invalid credentials' : 'Auth failed');
+        }
+      };
+
+      const getTodayString = () => new Date().toLocaleDateString();
+      const hasLoggedToday = () => lastLogDate === getTodayString();
+
+      const getRarity = () => {
+        const roll = Math.random();
+        let cumulative = 0;
+        for (const key in REWARDS) {
+          cumulative += REWARDS[key].chance;
+          if (roll <= cumulative) return key;
+        }
+        return 'common';
+      };
+
+      const openLootBox = async () => {
+        if (!gymLog.didGym || !gymLog.workout.trim()) {
+          alert('Please fill out the gym log!');
+          return;
+        }
+        if (!gymLog.photoURL) {
+          alert('Please upload a gym selfie to prove it!');
+          return;
+        }
+        if (hasLoggedToday()) {
+          alert('Already logged today! Come back tomorrow');
+          return;
+        }
+
+        setIsOpening(true);
+        setTimeout(async () => {
+          const rarity = getRarity();
+          const rewardData = REWARDS[rarity];
+          const randomItem = rewardData.items[Math.floor(Math.random() * rewardData.items.length)];
+          
+          const reward = {
+            id: Date.now(),
+            emoji: randomItem.emoji,
+            title: randomItem.title,
+            description: randomItem.description,
+            rarity: rewardData.rarity,
+            color: rewardData.color,
+            borderColor: rewardData.borderColor,
+            textColor: rewardData.textColor,
+            badgeColor: rewardData.badgeColor,
+            date: new Date().toLocaleDateString(),
+            workout: gymLog.workout,
+            photoURL: gymLog.photoURL,
+            redeemed: false
+          };
+
+          setCurrentReward(reward);
+          setShowReward(true);
+          setIsOpening(false);
+
+          const newInventory = [...inventory, reward];
+          const newStats = { total: stats.total + 1, thisWeek: stats.thisWeek + 1 };
+          const newLastLogDate = getTodayString();
+
+          setInventory(newInventory);
+          setStats(newStats);
+          setLastLogDate(newLastLogDate);
+
+          await saveUserData({ inventory: newInventory, stats: newStats, lastLogDate: newLastLogDate });
+          setGymLog({ didGym: '', workout: '', photo: null, photoURL: '' });
+        }, 2000);
+      };
+
+      const redeemReward = async (id) => {
+        const newInventory = inventory.map(item => item.id === id ? { ...item, redeemed: true } : item);
+        setInventory(newInventory);
+        await saveUserData({ inventory: newInventory });
+      };
+
+      const deleteReward = async (id) => {
+        const newInventory = inventory.filter(item => item.id !== id);
+        setInventory(newInventory);
+        await saveUserData({ inventory: newInventory });
+      };
+
+      if (loading) {
+        return (
+          <div style={{background: '#12123E'}} className="min-h-screen flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-teal-400 mx-auto mb-4"></div>
+              <p className="text-white text-xl font-semibold">Loading...</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (!user) {
+        return (
+          <div style={{background: '#12123E'}} className="min-h-screen flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
+              <div className="text-center mb-8">
+                <img src="logo.png" alt="MOtivation club" className="h-32 w-auto mx-auto mb-6" />
+                <p className="text-gray-600 font-medium">Sign in to start earning rewards</p>
+              </div>
+
+              <div className="space-y-4">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAuth()}
+                  placeholder="Email"
+                  className="w-full py-3 px-4 rounded-xl bg-gray-50 text-gray-900 placeholder-gray-400 border-2 border-gray-200 focus:outline-none focus:border-teal-400 font-medium"
+                />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAuth()}
+                  placeholder="Password"
+                  className="w-full py-3 px-4 rounded-xl bg-gray-50 text-gray-900 placeholder-gray-400 border-2 border-gray-200 focus:outline-none focus:border-teal-400 font-medium"
+                />
+
+                {authError && (
+                  <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-red-700 text-sm font-medium">
+                    {authError}
+                  </div>
+                )}
+
+                <button onClick={handleAuth} className="w-full bg-gradient-to-r from-teal-400 to-cyan-500 text-white font-bold py-3 px-6 rounded-xl hover:shadow-lg transition-all">
+                  {isSignUp ? 'Sign Up' : 'Log In'}
+                </button>
+
+                <button onClick={() => { setIsSignUp(!isSignUp); setAuthError(''); }} className="w-full text-gray-600 hover:text-gray-900 transition-colors text-sm font-medium">
+                  {isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      const activeRewards = inventory.filter(r => !r.redeemed);
+      const redeemedRewards = inventory.filter(r => r.redeemed);
+
+      return (
+        <div style={{background: '#12123E'}} className="min-h-screen p-4">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-8 pt-8">
+              <div className="mb-6">
+                <img src="logo.png" alt="MOtivation club" className="w-full max-w-2xl mx-auto h-auto" />
+              </div>
+              <p className="text-gray-400 text-lg mb-4 font-medium">Work out, earn epic rewards</p>
+              <button onClick={() => auth.signOut()} className="text-gray-400 hover:text-white transition-colors text-sm font-medium">
+                {user.email} • Sign Out
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="bg-white rounded-2xl p-6 text-center shadow-xl">
+                <div className="text-5xl font-extrabold text-gray-900 mb-1">{stats.total}</div>
+                <div className="text-gray-600 font-semibold">Total Workouts</div>
+              </div>
+              <div className="bg-white rounded-2xl p-6 text-center shadow-xl">
+                <div className="text-5xl font-extrabold text-teal-500 mb-1">{activeRewards.length}</div>
+                <div className="text-gray-600 font-semibold">Rewards Available</div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-8 mb-8 shadow-xl">
+              <h2 className="text-2xl font-extrabold text-gray-900 mb-6">Log Your Workout</h2>
+              
+              {hasLoggedToday() ? (
+                <div className="bg-teal-50 border-2 border-teal-400 rounded-2xl p-8 text-center">
+                  <div className="text-6xl mb-4">✅</div>
+                  <h3 className="text-2xl font-extrabold text-gray-900 mb-2">Already Logged Today!</h3>
+                  <p className="text-gray-600 text-lg font-medium">Come back tomorrow for another loot box</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-gray-700 mb-3 text-lg font-semibold">Did you gym today?</label>
+                    <div className="flex gap-4">
+                      <button onClick={() => setGymLog({ ...gymLog, didGym: 'yes' })} className={`flex-1 py-4 px-6 rounded-xl font-bold text-lg transition-all ${gymLog.didGym === 'yes' ? 'bg-teal-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        Yes
+                      </button>
+                      <button onClick={() => setGymLog({ ...gymLog, didGym: 'no' })} className={`flex-1 py-4 px-6 rounded-xl font-bold text-lg transition-all ${gymLog.didGym === 'no' ? 'bg-red-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        No
+                      </button>
+                    </div>
+                  </div>
+
+                  {gymLog.didGym === 'yes' && (
+                    <>
+                      <div>
+                        <label className="block text-gray-700 mb-3 text-lg font-semibold">What workout?</label>
+                        <input
+                          type="text"
+                          value={gymLog.workout}
+                          onChange={(e) => setGymLog({ ...gymLog, workout: e.target.value })}
+                          placeholder="e.g., Chest & Triceps, Leg Day, Cardio..."
+                          className="w-full py-4 px-6 rounded-xl bg-gray-50 text-gray-900 placeholder-gray-400 border-2 border-gray-200 focus:outline-none focus:border-teal-400 text-lg font-medium"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 mb-3 text-lg font-semibold">Upload Gym Selfie 📸</label>
+                        {gymLog.photoURL ? (
+                          <div className="relative border-2 border-teal-400 rounded-xl overflow-hidden">
+                            <img src={gymLog.photoURL} alt="Gym selfie" className="w-full h-64 object-cover" />
+                            <button
+                              onClick={() => setGymLog({ ...gymLog, photo: null, photoURL: '' })}
+                              className="absolute top-3 right-3 bg-red-500 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold hover:bg-red-600 text-xl shadow-lg"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-teal-400 hover:bg-gray-50 transition-all cursor-pointer">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              id="photoUpload"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    setGymLog({ ...gymLog, photo: file, photoURL: reader.result });
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                            />
+                            <label htmlFor="photoUpload" className="cursor-pointer block">
+                              <div className="text-6xl mb-3">📸</div>
+                              <div className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white font-bold py-3 px-6 rounded-xl inline-block mb-3 hover:shadow-lg transition-all">
+                                Choose Photo
+                              </div>
+                              <p className="text-gray-500 text-sm">Take a gym selfie to prove your workout</p>
+                            </label>
+                          </div>
+                        )}
+                      </div>
+
+                      <button onClick={openLootBox} disabled={isOpening} className="w-full bg-gradient-to-r from-teal-400 to-cyan-500 text-white font-extrabold py-5 px-6 rounded-xl text-xl shadow-xl hover:shadow-2xl transition-all hover:scale-105 disabled:opacity-50">
+                        {isOpening ? 'Opening Loot Box...' : 'Open Loot Box'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {showReward && currentReward && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
+                  <div className="text-center">
+                    <div className="text-6xl mb-4">✨</div>
+                    <div className={`inline-block px-6 py-2 rounded-full ${currentReward.badgeColor} font-bold text-lg mb-4`}>
+                      {currentReward.rarity}
+                    </div>
+                    <div className="text-7xl mb-4">{currentReward.emoji}</div>
+                    <h3 className="text-3xl font-extrabold text-gray-900 mb-3">
+                      {currentReward.title}
+                    </h3>
+                    <p className="text-gray-600 text-sm mb-6 font-medium italic">
+                      {currentReward.description}
+                    </p>
+                    <button onClick={() => setShowReward(false)} className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white font-bold py-3 px-8 rounded-xl hover:shadow-lg transition-all text-lg">
+                      Awesome!
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white rounded-3xl p-8 mb-8 shadow-xl">
+              <h2 className="text-2xl font-extrabold text-gray-900 mb-6">Available Rewards ({activeRewards.length})</h2>
+              
+              {activeRewards.length === 0 ? (
+                <p className="text-gray-500 text-center py-8 font-medium">No rewards yet. Hit the gym!</p>
+              ) : (
+                <div className="grid gap-4">
+                  {activeRewards.map((reward) => (
+                    <div key={reward.id} className={`${reward.color} rounded-2xl p-6 border-2 ${reward.borderColor}`}>
+                      <div className="flex items-start justify-between gap-4">
+                        {reward.photoURL && (
+                          <img src={reward.photoURL} alt="Gym proof" className="w-20 h-20 object-cover rounded-lg flex-shrink-0" />
+                        )}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-3xl">{reward.emoji}</span>
+                            <span className={`text-xl font-bold ${reward.textColor}`}>
+                              {reward.title}
+                            </span>
+                          </div>
+                          <p className="text-gray-600 text-sm mb-2 italic">{reward.description}</p>
+                          <div className="text-gray-500 text-xs font-medium">{reward.date} • {reward.workout}</div>
+                        </div>
+                        <button onClick={() => redeemReward(reward.id)} className="bg-gray-900 text-white font-bold py-2 px-6 rounded-xl hover:bg-gray-800 transition-all flex-shrink-0">
+                          Redeem
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {redeemedRewards.length > 0 && (
+              <div className="bg-white rounded-3xl p-8 shadow-xl">
+                <h2 className="text-2xl font-extrabold text-gray-900 mb-6">Redeemed Rewards ({redeemedRewards.length})</h2>
+                <div className="grid gap-3">
+                  {redeemedRewards.map((reward) => (
+                    <div key={reward.id} className="bg-gray-50 rounded-xl p-4 border-2 border-gray-200 flex items-center justify-between">
+                      <div className="flex items-center gap-3 flex-1">
+                        <span className="text-2xl opacity-50">{reward.emoji}</span>
+                        <div>
+                          <div className="text-gray-400 line-through font-medium">
+                            {reward.title}
+                          </div>
+                          <div className="text-gray-400 text-xs">{reward.date}</div>
+                        </div>
+                      </div>
+                      <button onClick={() => deleteReward(reward.id)} className="text-gray-400 hover:text-red-500 transition-colors text-sm px-3 py-1 font-medium">
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<GymLootBox />, document.getElementById('root'));
+  </script>
+</body>
+</html>
