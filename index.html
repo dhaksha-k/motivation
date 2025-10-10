@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>the MOtivation club</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,10 +17,16 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-auth-compat.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-firestore-compat.min.js"></script>
   <style>
-    * { font-family: 'Montserrat', sans-serif; }
-    body { background:#12123E; }
+    * {
+      font-family: 'Montserrat', sans-serif;
+    }
+
+    body {
+      background: #12123E;
+    }
   </style>
 </head>
+
 <body>
   <div id="root"></div>
 
@@ -182,12 +189,31 @@
       }, []);
 
       // --- Helpers ---
+      // --- Helpers ---
       const toast = (msg) => alert(msg);
-      const getTodayString = () => new Date().toISOString().slice(0, 10); // ISO (YYYY-MM-DD)
-      const hasLoggedToday = () => lastLogDate === getTodayString();
+
+      // always use LOCAL date parts (avoid UTC shift issues)
       const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`);
+
+      // today as YYYY-MM-DD in *local* time
+      const getTodayString = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      };
+
+      // build YYYY-MM-DD from local parts (used by calendar)
       const ymd = (y, m0, d) => `${y}-${pad2(m0 + 1)}-${pad2(d)}`;
+
+      // parse YYYY-MM-DD as a LOCAL date (no UTC conversion)
+      const localDateFromISO = (iso) => {
+        const [y, m, d] = iso.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      };
+
+      const hasLoggedToday = () => lastLogDate === getTodayString();
+
       const daysInMonth = (y, m0) => new Date(y, m0 + 1, 0).getDate();
+
 
       function buildMonthMatrix(date) {
         const y = date.getFullYear();
@@ -242,9 +268,9 @@
           console.error(error);
           setAuthError(
             error.code === 'auth/email-already-in-use' ? 'Email already in use' :
-            error.code === 'auth/weak-password' ? 'Password too weak' :
-            error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' ? 'Invalid credentials' :
-            'Auth failed'
+              error.code === 'auth/weak-password' ? 'Password too weak' :
+                error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' ? 'Invalid credentials' :
+                  'Auth failed'
           );
         }
       };
@@ -341,7 +367,7 @@
 
       if (loading) {
         return (
-          <div style={{background:'#12123E'}} className="min-h-screen flex items-center justify-center">
+          <div style={{ background: '#12123E' }} className="min-h-screen flex items-center justify-center">
             <div className="text-center">
               <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-teal-400 mx-auto mb-4"></div>
               <p className="text-white text-xl font-semibold">Loading...</p>
@@ -352,7 +378,7 @@
 
       if (!user) {
         return (
-          <div style={{background:'#12123E'}} className="min-h-screen flex items-center justify-center p-4">
+          <div style={{ background: '#12123E' }} className="min-h-screen flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
               <div className="text-center mb-8">
                 <img src="logo.png" alt="MOtivation club" className="h-32 w-auto mx-auto mb-6" />
@@ -400,7 +426,7 @@
       const redeemedRewards = inventory.filter(r => r.redeemed);
 
       return (
-        <div style={{background:'#12123E'}} className="min-h-screen p-4">
+        <div style={{ background: '#12123E' }} className="min-h-screen p-4">
           <div className="max-w-4xl mx-auto">
             <div className="text-center mb-8 pt-8">
               <div className="mb-6">
@@ -529,7 +555,7 @@
               </div>
 
               <div className="grid grid-cols-7 gap-1 text-xs font-bold text-gray-500 mb-1">
-                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
                   <div key={d} className="text-center py-2">{d}</div>
                 ))}
               </div>
@@ -558,7 +584,7 @@
                             {byDay[cell.iso].length} log{byDay[cell.iso].length > 1 ? 's' : ''}
                           </div>
                           <div className="flex mt-1 gap-1">
-                            {byDay[cell.iso].slice(0,3).map((r,i) => (
+                            {byDay[cell.iso].slice(0, 3).map((r, i) => (
                               <span key={i} title={r.title} className="w-2 h-2 rounded-full bg-teal-400 inline-block"></span>
                             ))}
                           </div>
@@ -595,7 +621,7 @@
                 <div className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-xl font-extrabold text-gray-900">
-                      {new Date(selectedDayISO).toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
+                      {localDateFromISO(selectedDayISO).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                     </h3>
                     <button
                       onClick={() => setSelectedDayISO(null)}
@@ -690,4 +716,5 @@
     ReactDOM.render(<GymLootBox />, document.getElementById('root'));
   </script>
 </body>
+
 </html>
